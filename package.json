@@ -1,5 +1,5 @@
 {
-  "name": "pi-file-reference",
+  "name": "@josephyoung/pi-file-reference",
   "version": "0.1.0",
   "private": false,
   "description": "Pi extension that resolves @filepath references in AGENTS.md and injects file content into system prompt",
