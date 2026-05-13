@@ -27,6 +27,14 @@ When a user writes `@./docs/style-guide.md` in their AGENTS.md:
 
 ## Publishing
 
+After functional changes are committed and pushed, update the GitHub repo description if the feature set changed:
+
+```bash
+gh repo edit --description "Pi extension: ..."
+```
+
+Then bump version and push the tag:
+
 ```bash
 npm version patch   # bump version (patch/minor/major)
 git push origin main --tags   # tag push triggers CI publish
@@ -35,7 +43,3 @@ git push origin main --tags   # tag push triggers CI publish
 - GitHub Actions workflow: `.github/workflows/publish.yml`
 - Uses npm Trusted Publishing (OIDC) — no tokens or OTP needed
 - Runs `npm publish --access public --provenance` on tag push
-- After publishing, update GitHub repo description if needed:
-  ```bash
-  gh repo edit --description "..."
-  ```
