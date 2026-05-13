@@ -1,6 +1,6 @@
 # pi-file-reference
 
-Pi extension that resolves `@filepath` references in AGENTS.md and injects file content into system prompt.
+Pi extension: resolve @filepath (files & directories) in AGENTS.md, inject into system prompt
 
 ## Structure
 
