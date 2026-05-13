@@ -2,12 +2,14 @@
   "name": "@josephyoung/pi-file-reference",
   "version": "0.1.2",
   "private": false,
-  "description": "Pi extension that resolves @filepath references in AGENTS.md and injects file content into system prompt",
+  "description": "Pi extension: resolve @filepath (files & directories) in AGENTS.md, inject into system prompt",
   "type": "module",
   "keywords": [
     "pi-package",
     "pi",
-    "extension"
+    "extension",
+    "context",
+    "file-reference"
   ],
   "homepage": "https://github.com/josephyoung/pi-file-reference#readme",
   "bugs": {
