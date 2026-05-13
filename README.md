@@ -21,6 +21,16 @@ A [pi](https://github.com/earendil-works/pi-coding-agent) extension that resolve
 
 The `@` must be at the start of a line or preceded by whitespace.
 
+### Directory references
+
+When `@path` resolves to a directory, all immediate files (depth 1) are injected:
+
+```
+@./docs
+```
+
+Injects `@docs/style-guide.md`, `@docs/patterns.md`, etc. (sorted alphabetically). Subdirectories are skipped. Trailing `/` is stripped (`@./docs/` works the same).
+
 ## Installation
 
 ```bash
