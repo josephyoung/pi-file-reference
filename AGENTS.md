@@ -37,11 +37,11 @@ Then bump version and push:
 
 ```bash
 npm version patch   # bump version, creates commit + tag
-git push origin main --tags   # push to main triggers CI (package.json change)
+git push origin main --tags   # push to main + tag; CI triggers on package.json change
 ```
 
 - GitHub Actions workflow: `.github/workflows/publish.yml`
 - Trigger: push to main when `package.json` changes, or `workflow_dispatch`
-- CI checks if version > npm latest before publishing (idempotent)
+- Uses Node 24 (npm 11) for OIDC support — Node 22's npm 10 OIDC is broken
 - Uses npm Trusted Publishing (OIDC) — no tokens or OTP needed
-- OIDC runs on `refs/heads/main` — ensure npm Trusted Publisher is configured for branch `main`
+- Runs on `refs/heads/main` — npm Trusted Publisher must accept branch `main`
