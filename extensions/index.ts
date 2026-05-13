@@ -1,10 +1,9 @@
-import type { ExtensionAPI, CustomEntry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 
 const AGENTS_FILE = "AGENTS.md";
-const STORE_KEY = "agents-at-context";
 
 /**
  * Parse @filepath references from a line.
@@ -137,38 +136,24 @@ function loadRefs(cwd: string): RefContent[] {
   return results;
 }
 
+let cachedRefs: RefContent[] = [];
+
 export default function (pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => {
-    // Check if custom entry already exists (e.g., after reload)
-    const entries = ctx.sessionManager.getEntries();
-    const existing = entries.find(
-      (e): e is CustomEntry<{ refs: RefContent[] }> =>
-        e.type === "custom" && e.customType === STORE_KEY,
-    );
-    if (existing) return;
-
-    const refs = loadRefs(ctx.cwd);
-    if (refs.length === 0) return;
-
-    pi.appendEntry(STORE_KEY, { refs });
+    cachedRefs = loadRefs(ctx.cwd);
   });
 
-  pi.on("before_agent_start", (event, ctx) => {
-    const entries = ctx.sessionManager.getEntries();
-    const entry = entries.find(
-      (e): e is CustomEntry<{ refs: RefContent[] }> =>
-        e.type === "custom" && e.customType === STORE_KEY,
-    );
-    if (!entry?.data?.refs?.length) return;
+  pi.on("before_agent_start", (event, _ctx) => {
+    if (!cachedRefs.length) return;
 
-    const injected = entry.data.refs
-      .map((r) => `// @${r.ref}\n${r.content}`)
+    const injected = cachedRefs
+      .map((r) => `## @${r.ref}\n\n${r.content}`)
       .join("\n\n");
 
     return {
       systemPrompt:
         event.systemPrompt +
-        `\n\n---\n// @AGENTS.md 引用文件 — 注入以下文件内容供参考\n${injected}\n---`,
+        `\n\n# Context References\n\n${injected}`,
     };
   });
 }
