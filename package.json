@@ -1,0 +1,16 @@
+{
+  "name": "pi-file-reference",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Pi extension that resolves @filepath references in AGENTS.md and injects file content into system prompt",
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./agents-at-reader.ts"
+    ]
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.74.0",
+    "@types/node": "^25.7.0"
+  }
+}
