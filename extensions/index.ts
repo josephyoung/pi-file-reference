@@ -129,7 +129,7 @@ function loadRefs(cwd: string): RefContent[] {
     if (fs.existsSync(resolvedPath)) {
       results.push({ ref, content: fs.readFileSync(resolvedPath, "utf-8") });
     } else {
-      console.warn(`[agents-at-reader] @${ref} -> ${resolvedPath} not found, skipping`);
+      console.warn(`[pi-file-reference] @${ref} -> ${resolvedPath} not found, skipping`);
     }
   }
 
