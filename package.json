@@ -1,7 +1,8 @@
 {
   "name": "@josephyoung/pi-file-reference",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": false,
+  "license": "MIT",
   "description": "Pi extension: resolve @filepath (files & directories) in AGENTS.md, inject into system prompt",
   "type": "module",
   "keywords": [
