@@ -33,13 +33,15 @@ After functional changes are committed and pushed, update the GitHub repo descri
 gh repo edit --description "Pi extension: ..."
 ```
 
-Then bump version and push the tag:
+Then bump version and push:
 
 ```bash
-npm version patch   # bump version (patch/minor/major)
-git push origin main --tags   # tag push triggers CI publish
+npm version patch   # bump version, creates commit + tag
+git push origin main --tags   # push to main triggers CI (package.json change)
 ```
 
 - GitHub Actions workflow: `.github/workflows/publish.yml`
+- Trigger: push to main when `package.json` changes, or `workflow_dispatch`
+- CI checks if version > npm latest before publishing (idempotent)
 - Uses npm Trusted Publishing (OIDC) — no tokens or OTP needed
-- Runs `npm publish --access public --provenance` on tag push
+- OIDC runs on `refs/heads/main` — ensure npm Trusted Publisher is configured for branch `main`

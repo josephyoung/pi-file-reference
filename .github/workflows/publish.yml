@@ -2,8 +2,10 @@ name: Publish to npm
 
 on:
   push:
-    tags:
-      - v*
+    branches:
+      - main
+    paths:
+      - package.json
   workflow_dispatch:
 
 jobs:
@@ -17,4 +19,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm publish --access public --provenance
+      - run: |
+          npm config set registry https://registry.npmjs.org/
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          PUBLISHED_VERSION=$(npm view @josephyoung/pi-file-reference version 2>/dev/null || echo "0.0.0")
+          if [ "$PACKAGE_VERSION" != "$PUBLISHED_VERSION" ]; then
+            npm publish --access public --provenance
+          else
+            echo "Version $PACKAGE_VERSION already published, skipping"
+          fi
