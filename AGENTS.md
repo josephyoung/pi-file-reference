@@ -35,3 +35,7 @@ git push origin main --tags   # tag push triggers CI publish
 - GitHub Actions workflow: `.github/workflows/publish.yml`
 - Uses npm Trusted Publishing (OIDC) — no tokens or OTP needed
 - Runs `npm publish --access public --provenance` on tag push
+- After publishing, update GitHub repo description if needed:
+  ```bash
+  gh repo edit --description "..."
+  ```
