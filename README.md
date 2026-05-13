@@ -35,7 +35,7 @@ Injects `@docs/style-guide.md`, `@docs/patterns.md`, etc. (sorted alphabetically
 
 ```bash
 # Install from npm (once published)
-pi install pi-file-reference
+pi install npm:@josephyoung/pi-file-reference
 
 # Or clone and link locally
 git clone https://github.com/your-org/pi-file-reference.git
