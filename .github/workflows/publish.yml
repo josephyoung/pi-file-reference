@@ -19,11 +19,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          registry-url: https://registry.npmjs.org/
       - run: |
-          echo "ACTIONS_ID_TOKEN_REQUEST_URL: ${ACTIONS_ID_TOKEN_REQUEST_URL:+set}"
-          echo "ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${ACTIONS_ID_TOKEN_REQUEST_TOKEN:+set}"
-          npm config set registry https://registry.npmjs.org/
-          npm publish --access public --provenance --dry-run 2>&1 | head -5
+          unset NODE_AUTH_TOKEN
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
           PUBLISHED_VERSION=$(npm view @josephyoung/pi-file-reference version 2>/dev/null || echo "0.0.0")
           if [ "$PACKAGE_VERSION" != "$PUBLISHED_VERSION" ]; then
