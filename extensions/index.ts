@@ -122,14 +122,41 @@ function loadRefs(cwd: string): RefContent[] {
     return true;
   });
 
-  // Read each referenced file
+  // Read each referenced file or directory
   const results: RefContent[] = [];
   for (const ref of uniqueRefs) {
-    const resolvedPath = resolveRef(ref, baseDir);
-    if (fs.existsSync(resolvedPath)) {
-      results.push({ ref, content: fs.readFileSync(resolvedPath, "utf-8") });
+    // Strip trailing slashes for consistent handling
+    const cleanRef = ref.endsWith("/") ? ref.slice(0, -1) : ref;
+    const resolvedPath = resolveRef(cleanRef, baseDir);
+
+    if (!fs.existsSync(resolvedPath)) {
+      console.warn(`[pi-file-reference] @${cleanRef} -> ${resolvedPath} not found, skipping`);
+      continue;
+    }
+
+    const stat = fs.statSync(resolvedPath);
+    if (stat.isDirectory()) {
+      // Read all files at depth 1, skip subdirectories
+      const entries = fs.readdirSync(resolvedPath, { withFileTypes: true });
+      const files = entries
+        .filter((e) => e.isFile())
+        .map((e) => e.name)
+        .sort(); // deterministic order
+
+      if (files.length === 0) {
+        console.warn(`[pi-file-reference] @${cleanRef} is an empty directory, skipping`);
+        continue;
+      }
+
+      for (const fileName of files) {
+        const filePath = path.join(resolvedPath, fileName);
+        results.push({
+          ref: `${cleanRef}/${fileName}`,
+          content: fs.readFileSync(filePath, "utf-8"),
+        });
+      }
     } else {
-      console.warn(`[pi-file-reference] @${ref} -> ${resolvedPath} not found, skipping`);
+      results.push({ ref: cleanRef, content: fs.readFileSync(resolvedPath, "utf-8") });
     }
   }
 
