@@ -45,5 +45,3 @@ git push origin main --tags   # push to main + tag; CI triggers on package.json 
 - Uses Node 24 (npm 11) for OIDC support — Node 22's npm 10 OIDC is broken
 - Uses npm Trusted Publishing (OIDC) — no tokens or OTP needed
 - Runs on `refs/heads/main` — npm Trusted Publisher must accept branch `main`
-
-@README.md
