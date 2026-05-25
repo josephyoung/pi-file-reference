@@ -40,7 +40,7 @@ export function parseRefs(line: string): string[] {
       ref = line.slice(start, i);
     }
 
-    if (ref) refs.push(ref);
+    if (ref && (ref.includes("/") || ref.includes("."))) refs.push(ref);
   }
 
   return refs;
@@ -82,32 +82,20 @@ export interface RefContent {
 }
 
 /**
- * Collect @filepath references from <project_instructions> blocks
- * inside Pi's <project_context> section of the system prompt.
+ * Collect @filepath references from context files loaded by Pi
+ * (AGENTS.md, CLAUDE.md, and any custom context files).
  *
- * Processes all <project_instructions> blocks — no hardcoded filenames.
- * References are deduplicated across all blocks.
+ * Processes all entries — no hardcoded filename filter.
+ * References are deduplicated across all context files.
  */
-export function loadRefsFromPrompt(systemPrompt: string): RefContent[] {
-  // Extract <project_context> section
-  const ctxStart = systemPrompt.indexOf("<project_context>");
-  const ctxEnd = systemPrompt.indexOf("</project_context>");
-  if (ctxStart === -1 || ctxEnd === -1) return [];
-
-  const contextSection = systemPrompt.slice(ctxStart, ctxEnd);
-
+export function loadRefsFromContextFiles(
+  contextFiles: Array<{ path: string; content: string }>,
+): RefContent[] {
   const seen = new Set<string>();
   const results: RefContent[] = [];
 
-  // Parse all <project_instructions path="..."> blocks
-  const instrRe =
-    /<project_instructions path="([^"]+)">\n([\s\S]*?)\n<\/project_instructions>/g;
-  let match: RegExpExecArray | null;
-
-  while ((match = instrRe.exec(contextSection)) !== null) {
-    const instrPath = match[1];
-    const content = match[2];
-    const baseDir = path.dirname(instrPath);
+  for (const { path: filePath, content } of contextFiles) {
+    const baseDir = path.dirname(filePath);
 
     // Collect all refs from all lines
     const allRefs: string[] = [];
@@ -115,14 +103,14 @@ export function loadRefsFromPrompt(systemPrompt: string): RefContent[] {
       allRefs.push(...parseRefs(line));
     }
 
-    // Deduplicate while preserving order (across all blocks)
+    // Deduplicate while preserving order (across all context files)
     const uniqueRefs = allRefs.filter((ref) => {
       if (seen.has(ref)) return false;
       seen.add(ref);
       return true;
     });
 
-    // Read each referenced file or directory (baseDir is per block)
+    // Read each referenced file or directory (baseDir is per context file)
     for (const ref of uniqueRefs) {
       // Strip trailing slashes for consistent handling
       const cleanRef = ref.endsWith("/") ? ref.slice(0, -1) : ref;
@@ -179,7 +167,9 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("before_agent_start", (event) => {
     if (!initialized) {
-      cachedRefs = loadRefsFromPrompt(event.systemPrompt);
+      cachedRefs = loadRefsFromContextFiles(
+        event.systemPromptOptions.contextFiles ?? [],
+      );
       initialized = true;
     }
 
@@ -188,7 +178,7 @@ export default function (pi: ExtensionAPI) {
     const blocks = cachedRefs
       .map(
         (r) =>
-          `<project_reference path="${r.resolvedPath}">\n${r.content}\n</project_reference>`,
+          `<project_references path="${r.resolvedPath}">\n${r.content}\n</project_references>`,
       )
       .join("\n\n");
 

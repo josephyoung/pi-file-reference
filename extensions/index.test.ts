@@ -7,7 +7,7 @@ import * as os from "node:os";
 import {
   parseRefs,
   resolveRef,
-  loadRefsFromPrompt,
+  loadRefsFromContextFiles,
   type RefContent,
 } from "./index.ts";
 
@@ -79,6 +79,18 @@ describe("parseRefs", () => {
   it("returns empty for empty line", () => {
     assert.deepEqual(parseRefs(""), []);
   });
+
+  it("ignores @words that don't look like file paths (no / or .)", () => {
+    assert.deepEqual(parseRefs("@filepath and @refs, are documentation"), []);
+  });
+
+  it("matches @refs with a dot (file extension)", () => {
+    assert.deepEqual(parseRefs("@file.md"), ["file.md"]);
+  });
+
+  it("matches @refs with a slash (directory or path)", () => {
+    assert.deepEqual(parseRefs("@./docs"), ["./docs"]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -120,9 +132,9 @@ describe("resolveRef", () => {
 });
 
 // ---------------------------------------------------------------------------
-// loadRefsFromPrompt
+// loadRefsFromContextFiles
 // ---------------------------------------------------------------------------
-describe("loadRefsFromPrompt", () => {
+describe("loadRefsFromContextFiles", () => {
   let tmpDir: string;
 
   before(() => {
@@ -140,48 +152,30 @@ describe("loadRefsFromPrompt", () => {
     return full;
   }
 
-  /** Build a mock system prompt with <project_context> */
-  function buildPrompt(...instructions: Array<{ path: string; content: string }>): string {
-    let p = "You are a coding agent...\n\n";
-    p += "<project_context>\n\n";
-    p += "Project-specific instructions and guidelines:\n\n";
-    for (const { path: filePath, content } of instructions) {
-      p += `<project_instructions path="${filePath}">\n${content}\n</project_instructions>\n\n`;
-    }
-    p += "</project_context>\n\n";
-    p += "<available_skills>...</available_skills>\n\n";
-    p += "Current date: 2026-01-01";
-    return p;
-  }
-
   // --- empty / no-op cases ---
 
-  it("returns empty array when prompt has no <project_context>", () => {
-    const result = loadRefsFromPrompt("Just a plain prompt, no XML blocks.");
+  it("returns empty array when contextFiles is empty", () => {
+    const result = loadRefsFromContextFiles([]);
     assert.deepEqual(result, []);
   });
 
-  it("returns empty array when <project_context> has no <project_instructions>", () => {
-    const prompt = "prefix\n\n<project_context>\n\nSome text but no instructions\n\n</project_context>\n\nsuffix";
-    const result = loadRefsFromPrompt(prompt);
-    assert.deepEqual(result, []);
-  });
-
-  it("returns empty array when <project_instructions> blocks have no @refs", () => {
+  it("returns empty array when context file has no @refs", () => {
     const agentsPath = path.join(tmpDir, "AGENTS.md");
     fs.writeFileSync(agentsPath, "# Just a heading\n\nNo refs here.\n", "utf-8");
-    const prompt = buildPrompt({ path: agentsPath, content: fs.readFileSync(agentsPath, "utf-8") });
-    const result = loadRefsFromPrompt(prompt);
+    const result = loadRefsFromContextFiles([
+      { path: agentsPath, content: fs.readFileSync(agentsPath, "utf-8") },
+    ]);
     assert.deepEqual(result, []);
   });
 
-  it("processes ALL <project_instructions> blocks (no hardcoded filename filter)", () => {
-    // A context file named CUSTOM.md with a @ref — should be processed
+  it("processes ALL context file entries (no hardcoded filename filter)", () => {
+    // CUSTOM.md with a @ref — should be processed (no AGENTS/CLAUDE guard)
     const refFile = createFile("custom-rules.md", "custom content");
     const customPath = path.join(tmpDir, "CUSTOM.md");
     fs.writeFileSync(customPath, "@custom-rules.md\n", "utf-8");
-    const prompt = buildPrompt({ path: customPath, content: fs.readFileSync(customPath, "utf-8") });
-    const result = loadRefsFromPrompt(prompt);
+    const result = loadRefsFromContextFiles([
+      { path: customPath, content: fs.readFileSync(customPath, "utf-8") },
+    ]);
     assert.equal(result.length, 1);
     assert.equal(result[0].ref, "custom-rules.md");
   });
@@ -190,25 +184,27 @@ describe("loadRefsFromPrompt", () => {
 
   it("resolves a single @ref to a file that exists", () => {
     const refFile = createFile("style-guide.md", "Use camelCase");
-    const agentsPath = path.join(tmpDir, "AGENTS.md");
-    fs.writeFileSync(agentsPath, "Follow @style-guide.md\n", "utf-8");
-    const prompt = buildPrompt({ path: agentsPath, content: fs.readFileSync(agentsPath, "utf-8") });
+    const agentsPath = createFile("AGENTS.md", "Follow @style-guide.md\n");
 
-    const result = loadRefsFromPrompt(prompt);
+    const result = loadRefsFromContextFiles([
+      { path: agentsPath, content: fs.readFileSync(agentsPath, "utf-8") },
+    ]);
+
     assert.equal(result.length, 1);
     assert.equal(result[0].ref, "style-guide.md");
     assert.equal(result[0].resolvedPath, refFile);
     assert.equal(result[0].content, "Use camelCase");
   });
 
-  it("resolves multiple @refs in a single block", () => {
+  it("resolves multiple @refs in a single context file", () => {
     const fileA = createFile("a.md", "AAA");
     const fileB = createFile("sub/b.md", "BBB");
-    const agentsPath = path.join(tmpDir, "AGENTS.md");
-    fs.writeFileSync(agentsPath, "use @a.md and @sub/b.md\n", "utf-8");
-    const prompt = buildPrompt({ path: agentsPath, content: fs.readFileSync(agentsPath, "utf-8") });
+    const agentsPath = createFile("AGENTS.md", "use @a.md and @sub/b.md\n");
 
-    const result = loadRefsFromPrompt(prompt);
+    const result = loadRefsFromContextFiles([
+      { path: agentsPath, content: fs.readFileSync(agentsPath, "utf-8") },
+    ]);
+
     assert.equal(result.length, 2);
     const refs = result.map((r) => r.ref).sort();
     assert.deepEqual(refs, ["a.md", "sub/b.md"]);
@@ -227,11 +223,12 @@ describe("loadRefsFromPrompt", () => {
     fs.mkdirSync(subdir, { recursive: true });
     fs.writeFileSync(path.join(subdir, "c.md"), "CCC", "utf-8");
 
-    const agentsPath = path.join(tmpDir, "AGENTS.md");
-    fs.writeFileSync(agentsPath, "@./docs\n", "utf-8");
-    const prompt = buildPrompt({ path: agentsPath, content: fs.readFileSync(agentsPath, "utf-8") });
+    const agentsPath = createFile("AGENTS.md", "@./docs\n");
 
-    const result = loadRefsFromPrompt(prompt);
+    const result = loadRefsFromContextFiles([
+      { path: agentsPath, content: fs.readFileSync(agentsPath, "utf-8") },
+    ]);
+
     assert.equal(result.length, 2);
     assert.equal(result[0].ref, "./docs/a.md");
     assert.equal(result[0].content, "AAA");
@@ -243,11 +240,11 @@ describe("loadRefsFromPrompt", () => {
     const emptyDir = path.join(tmpDir, "empty-dir");
     fs.mkdirSync(emptyDir, { recursive: true });
 
-    const agentsPath = path.join(tmpDir, "AGENTS.md");
-    fs.writeFileSync(agentsPath, "@./empty-dir\n", "utf-8");
-    const prompt = buildPrompt({ path: agentsPath, content: fs.readFileSync(agentsPath, "utf-8") });
+    const agentsPath = createFile("AGENTS.md", "@./empty-dir\n");
 
-    const result = loadRefsFromPrompt(prompt);
+    const result = loadRefsFromContextFiles([
+      { path: agentsPath, content: fs.readFileSync(agentsPath, "utf-8") },
+    ]);
     assert.deepEqual(result, []);
   });
 
@@ -256,11 +253,11 @@ describe("loadRefsFromPrompt", () => {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, "x.md"), "XXX", "utf-8");
 
-    const agentsPath = path.join(tmpDir, "AGENTS.md");
-    fs.writeFileSync(agentsPath, "@stuff/\n", "utf-8");
-    const prompt = buildPrompt({ path: agentsPath, content: fs.readFileSync(agentsPath, "utf-8") });
+    const agentsPath = createFile("AGENTS.md", "@stuff/\n");
 
-    const result = loadRefsFromPrompt(prompt);
+    const result = loadRefsFromContextFiles([
+      { path: agentsPath, content: fs.readFileSync(agentsPath, "utf-8") },
+    ]);
     assert.equal(result.length, 1);
     assert.equal(result[0].ref, "stuff/x.md");
   });
@@ -268,17 +265,17 @@ describe("loadRefsFromPrompt", () => {
   // --- missing file ---
 
   it("skips @ref pointing to a non-existent file", () => {
-    const agentsPath = path.join(tmpDir, "AGENTS.md");
-    fs.writeFileSync(agentsPath, "@nonexistent.md\n", "utf-8");
-    const prompt = buildPrompt({ path: agentsPath, content: fs.readFileSync(agentsPath, "utf-8") });
+    const agentsPath = createFile("AGENTS.md", "@nonexistent.md\n");
 
-    const result = loadRefsFromPrompt(prompt);
+    const result = loadRefsFromContextFiles([
+      { path: agentsPath, content: fs.readFileSync(agentsPath, "utf-8") },
+    ]);
     assert.deepEqual(result, []);
   });
 
-  // --- multiple context files (AGENTS.md + CLAUDE.md) ---
+  // --- multiple context files ---
 
-  it("collects refs from multiple <project_instructions> blocks", () => {
+  it("collects refs from multiple context files", () => {
     const userDir = path.join(tmpDir, "user-pi-agent");
     fs.mkdirSync(userDir, { recursive: true });
     const userFile = path.join(userDir, "user-settings.md");
@@ -289,18 +286,17 @@ describe("loadRefsFromPrompt", () => {
     const projFile = createFile("project-rules.md", "proj config");
     const projAgents = createFile("AGENTS.md", "use @project-rules.md\n");
 
-    const prompt = buildPrompt(
+    const result = loadRefsFromContextFiles([
       { path: projAgents, content: fs.readFileSync(projAgents, "utf-8") },
       { path: userAgents, content: fs.readFileSync(userAgents, "utf-8") },
-    );
+    ]);
 
-    const result = loadRefsFromPrompt(prompt);
     assert.equal(result.length, 2);
     const refs = result.map((r) => r.ref).sort();
     assert.deepEqual(refs, ["project-rules.md", "user-settings.md"]);
   });
 
-  it("deduplicates same @ref across blocks (first occurrence wins)", () => {
+  it("deduplicates same @ref across context files (first occurrence wins)", () => {
     const dirA = path.join(tmpDir, "proj");
     const dirB = path.join(tmpDir, "user");
     fs.mkdirSync(dirA, { recursive: true });
@@ -313,12 +309,11 @@ describe("loadRefsFromPrompt", () => {
     fs.writeFileSync(projAgents, "@guidelines.md\n", "utf-8");
     fs.writeFileSync(userAgents, "@guidelines.md\n", "utf-8");
 
-    const prompt = buildPrompt(
+    const result = loadRefsFromContextFiles([
       { path: projAgents, content: fs.readFileSync(projAgents, "utf-8") },
       { path: userAgents, content: fs.readFileSync(userAgents, "utf-8") },
-    );
+    ]);
 
-    const result = loadRefsFromPrompt(prompt);
     assert.equal(result.length, 1);
     assert.equal(result[0].resolvedPath, path.join(dirA, "guidelines.md"));
     assert.equal(result[0].content, "from proj");
@@ -331,9 +326,11 @@ describe("loadRefsFromPrompt", () => {
     fs.writeFileSync(absPath, "abs content", "utf-8");
 
     const agentsPath = createFile("AGENTS.md", `@${absPath}\n`);
-    const prompt = buildPrompt({ path: agentsPath, content: fs.readFileSync(agentsPath, "utf-8") });
 
-    const result = loadRefsFromPrompt(prompt);
+    const result = loadRefsFromContextFiles([
+      { path: agentsPath, content: fs.readFileSync(agentsPath, "utf-8") },
+    ]);
+
     assert.equal(result.length, 1);
     assert.equal(result[0].resolvedPath, absPath);
     assert.equal(result[0].content, "abs content");
@@ -346,9 +343,11 @@ describe("loadRefsFromPrompt", () => {
       fs.writeFileSync(homeFile, "home content", "utf-8");
 
       const agentsPath = createFile("AGENTS.md", "@~/.pi-ref-test-temp-file.md\n");
-      const prompt = buildPrompt({ path: agentsPath, content: fs.readFileSync(agentsPath, "utf-8") });
 
-      const result = loadRefsFromPrompt(prompt);
+      const result = loadRefsFromContextFiles([
+        { path: agentsPath, content: fs.readFileSync(agentsPath, "utf-8") },
+      ]);
+
       assert.equal(result.length, 1);
       assert.equal(result[0].resolvedPath, homeFile);
       assert.equal(result[0].content, "home content");
@@ -359,12 +358,14 @@ describe("loadRefsFromPrompt", () => {
 
   // --- quoted paths ---
 
-  it("handles quoted @\"path with spaces\" in block content", () => {
+  it("handles quoted @\"path with spaces\" in context file content", () => {
     const spacedFile = createFile("my file.md", "spaced content");
     const agentsPath = createFile('AGENTS.md', '@"my file.md"\n');
-    const prompt = buildPrompt({ path: agentsPath, content: fs.readFileSync(agentsPath, "utf-8") });
 
-    const result = loadRefsFromPrompt(prompt);
+    const result = loadRefsFromContextFiles([
+      { path: agentsPath, content: fs.readFileSync(agentsPath, "utf-8") },
+    ]);
+
     assert.equal(result.length, 1);
     assert.equal(result[0].resolvedPath, spacedFile);
     assert.equal(result[0].content, "spaced content");
