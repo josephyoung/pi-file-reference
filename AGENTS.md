@@ -17,13 +17,13 @@ When a user writes `@./docs/style-guide.md` in their AGENTS.md:
 2. Resolves paths (relative, absolute, ~/ expansion)
 3. If the path is a file: reads it
    If the path is a directory: reads all immediate files (depth 1, sorted alphabetically)
-4. Injects them into the system prompt under `# Context References`
+4. Injects them into the system prompt as `<project_instructions>` blocks inside Pi's `<project_context>` section
 
 ## Conventions
 
 - All code and comments in English
 - AGENTS.md drives the project-level AI context
-- Match Pi's internal style for context file injection (`## @path\n\n{content}`)
+- Inject referenced files as `<project_instructions>` blocks inside Pi's `<project_context>` section
 
 ## Publishing
 
@@ -45,3 +45,5 @@ git push origin main --tags   # push to main + tag; CI triggers on package.json 
 - Uses Node 24 (npm 11) for OIDC support — Node 22's npm 10 OIDC is broken
 - Uses npm Trusted Publishing (OIDC) — no tokens or OTP needed
 - Runs on `refs/heads/main` — npm Trusted Publisher must accept branch `main`
+
+@README.md

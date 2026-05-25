@@ -79,6 +79,7 @@ function resolveRef(ref: string, baseDir: string): string {
 /** A resolved file reference with its content. */
 interface RefContent {
   ref: string;
+  resolvedPath: string;
   content: string;
 }
 
@@ -148,11 +149,16 @@ function loadRefs(cwd: string): RefContent[] {
           const filePath = path.join(resolvedPath, fileName);
           results.push({
             ref: `${cleanRef}/${fileName}`,
+            resolvedPath: filePath,
             content: fs.readFileSync(filePath, "utf-8"),
           });
         }
       } else {
-        results.push({ ref: cleanRef, content: fs.readFileSync(resolvedPath, "utf-8") });
+        results.push({
+          ref: cleanRef,
+          resolvedPath,
+          content: fs.readFileSync(resolvedPath, "utf-8"),
+        });
       }
     }
   }
@@ -170,14 +176,28 @@ export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", (event, _ctx) => {
     if (!cachedRefs.length) return;
 
-    const injected = cachedRefs
-      .map((r) => `## @${r.ref}\n\n${r.content}`)
+    const blocks = cachedRefs
+      .map(
+        (r) =>
+          `<project_instructions path="${r.resolvedPath}">\n${r.content}\n</project_instructions>`,
+      )
       .join("\n\n");
 
+    // Inject inside <project_context> after existing <project_instructions>
+    const closeTag = "</project_context>";
+    const closeIdx = event.systemPrompt.lastIndexOf(closeTag);
+
+    if (closeIdx !== -1) {
+      const prefix = event.systemPrompt.slice(0, closeIdx);
+      const suffix = event.systemPrompt.slice(closeIdx);
+      return { systemPrompt: prefix + blocks + "\n\n" + suffix };
+    }
+
+    // Fallback: no <project_context> (custom prompt)
     return {
       systemPrompt:
         event.systemPrompt +
-        `\n\n# Context References\n\n${injected}`,
+        `\n\n<project_context>\n\n${blocks}\n\n</project_context>`,
     };
   });
 }
