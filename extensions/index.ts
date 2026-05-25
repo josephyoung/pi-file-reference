@@ -3,8 +3,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 
-const AGENTS_FILE = "AGENTS.md";
-
 /**
  * Parse @filepath references from a line.
  *
@@ -13,7 +11,7 @@ const AGENTS_FILE = "AGENTS.md";
  * - @ followed by a double-quoted string: extract inside quotes
  * - @ followed by unquoted text: extract until whitespace
  */
-function parseRefs(line: string): string[] {
+export function parseRefs(line: string): string[] {
   const refs: string[] = [];
   let i = 0;
 
@@ -56,7 +54,7 @@ function parseRefs(line: string): string[] {
  * - Tilde paths (~/foo or ~user/foo) — expanded via os.homedir()
  * - Relative paths — resolved against baseDir
  */
-function resolveRef(ref: string, baseDir: string): string {
+export function resolveRef(ref: string, baseDir: string): string {
   if (ref.startsWith("/")) return ref;
   if (ref.startsWith("~")) {
     // ~/path or ~user/path
@@ -77,50 +75,54 @@ function resolveRef(ref: string, baseDir: string): string {
 }
 
 /** A resolved file reference with its content. */
-interface RefContent {
+export interface RefContent {
   ref: string;
   resolvedPath: string;
   content: string;
 }
 
 /**
- * Find and parse AGENTS.md files, collect @filepath references from all of them.
+ * Collect @filepath references from <project_instructions> blocks
+ * inside Pi's <project_context> section of the system prompt.
  *
- * Scans both:
- * 1. <cwd>/AGENTS.md (project scope)
- * 2. ~/.pi/agent/AGENTS.md (user scope)
- *
- * References are deduplicated across all AGENTS.md files.
+ * Processes all <project_instructions> blocks — no hardcoded filenames.
+ * References are deduplicated across all blocks.
  */
-function loadRefs(cwd: string): RefContent[] {
-  const candidates = [
-    path.join(cwd, AGENTS_FILE),
-    path.join(os.homedir(), ".pi", "agent", AGENTS_FILE),
-  ];
+export function loadRefsFromPrompt(systemPrompt: string): RefContent[] {
+  // Extract <project_context> section
+  const ctxStart = systemPrompt.indexOf("<project_context>");
+  const ctxEnd = systemPrompt.indexOf("</project_context>");
+  if (ctxStart === -1 || ctxEnd === -1) return [];
+
+  const contextSection = systemPrompt.slice(ctxStart, ctxEnd);
 
   const seen = new Set<string>();
   const results: RefContent[] = [];
 
-  for (const agentsPath of candidates) {
-    if (!fs.existsSync(agentsPath)) continue;
+  // Parse all <project_instructions path="..."> blocks
+  const instrRe =
+    /<project_instructions path="([^"]+)">\n([\s\S]*?)\n<\/project_instructions>/g;
+  let match: RegExpExecArray | null;
 
-    const raw = fs.readFileSync(agentsPath, "utf-8");
-    const baseDir = path.dirname(agentsPath);
+  while ((match = instrRe.exec(contextSection)) !== null) {
+    const instrPath = match[1];
+    const content = match[2];
+    const baseDir = path.dirname(instrPath);
 
     // Collect all refs from all lines
     const allRefs: string[] = [];
-    for (const line of raw.split("\n")) {
+    for (const line of content.split("\n")) {
       allRefs.push(...parseRefs(line));
     }
 
-    // Deduplicate while preserving order (across all AGENTS.md files)
+    // Deduplicate while preserving order (across all blocks)
     const uniqueRefs = allRefs.filter((ref) => {
       if (seen.has(ref)) return false;
       seen.add(ref);
       return true;
     });
 
-    // Read each referenced file or directory (baseDir is per-candidate)
+    // Read each referenced file or directory (baseDir is per block)
     for (const ref of uniqueRefs) {
       // Strip trailing slashes for consistent handling
       const cleanRef = ref.endsWith("/") ? ref.slice(0, -1) : ref;
@@ -167,19 +169,26 @@ function loadRefs(cwd: string): RefContent[] {
 }
 
 let cachedRefs: RefContent[] = [];
+let initialized = false;
 
 export default function (pi: ExtensionAPI) {
-  pi.on("session_start", (_event, ctx) => {
-    cachedRefs = loadRefs(ctx.cwd);
+  pi.on("session_start", () => {
+    cachedRefs = [];
+    initialized = false;
   });
 
-  pi.on("before_agent_start", (event, _ctx) => {
+  pi.on("before_agent_start", (event) => {
+    if (!initialized) {
+      cachedRefs = loadRefsFromPrompt(event.systemPrompt);
+      initialized = true;
+    }
+
     if (!cachedRefs.length) return;
 
     const blocks = cachedRefs
       .map(
         (r) =>
-          `<project_instructions path="${r.resolvedPath}">\n${r.content}\n</project_instructions>`,
+          `<project_reference path="${r.resolvedPath}">\n${r.content}\n</project_reference>`,
       )
       .join("\n\n");
 
