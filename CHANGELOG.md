@@ -1,0 +1,15 @@
+# Changelog
+
+## 0.1.5 (unreleased)
+
+### Changed
+- **Source**: @refs are now parsed from Pi's `systemPromptOptions.contextFiles` (structured API) instead of reading AGENTS.md from disk with hardcoded paths. Supports all context files Pi discovers (AGENTS.md, CLAUDE.md, CLAUDE.MD, custom).
+- **Injection tag**: Renamed from `<project_instructions>` to `<project_references>` for clarity — Pi uses `project_instructions` for its own context files; the extension injects a different category.
+- **Injection target**: References are injected inside Pi's existing `<project_context>` section instead of a separate `# Context References` block.
+- **Filter**: `parseRefs` now requires `.` or `/` in refs to avoid false positives on documentation words (`@filepath`, `@refs`).
+
+### Fixed
+- **Multi-AGENTS.md support**: Previously broke on first AGENTS.md found (project), skipping user-level `~/.pi/agent/AGENTS.md`. Now processes all context files.
+
+### Verified
+- Pi rebuilds the system prompt from `_baseSystemPrompt` each `before_agent_start`. Injections must run on every call — a one-shot flag would lose references after the first prompt.
