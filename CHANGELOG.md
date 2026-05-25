@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.5 (unreleased)
+## 0.1.6
 
 ### Changed
 - **Source**: @refs are now parsed from Pi's `systemPromptOptions.contextFiles` (structured API) instead of reading AGENTS.md from disk with hardcoded paths. Supports all context files Pi discovers (AGENTS.md, CLAUDE.md, CLAUDE.MD, custom).
