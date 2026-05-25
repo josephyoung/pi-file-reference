@@ -4,10 +4,10 @@ A [pi](https://github.com/earendil-works/pi-coding-agent) extension that resolve
 
 ## How it works
 
-1. On `session_start`, the extension reads `AGENTS.md` (project-local first, then `~/.pi/agent/` as fallback)
-2. Parses `@filepath` references from the file
-3. Reads the referenced files and caches their contents in session state (survives reload)
-4. On `before_agent_start`, injects the file contents into the system prompt as `<project_instructions>` blocks inside Pi's `<project_context>` section
+1. On `session_start`, the extension resets its cache for the new session
+2. On the first `before_agent_start`, parses `@filepath` references from Pi's loaded context files (AGENTS.md, CLAUDE.md, custom context files)
+3. Reads the referenced files and caches their contents (survives reload)
+4. On every `before_agent_start`, injects the file contents into the system prompt as `<project_references>` blocks inside Pi's `<project_context>` section
 
 ## @filepath syntax
 

@@ -5,25 +5,25 @@ Pi extension: resolve @filepath (files & directories) in AGENTS.md, inject into 
 ## Structure
 
 - `extensions/index.ts` — extension entry point
-  - `session_start`: scan AGENTS.md for @refs, read files, cache in memory
-  - `before_agent_start`: inject cached file content into system prompt
+  - `session_start`: reset cache for new session
+  - `before_agent_start`: parse @refs from Pi's context files, resolve and cache referenced file contents, inject as `<project_references>` blocks inside `<project_context>`
 - `package.json` — pi package metadata
 
 ## How it works
 
 When a user writes `@./docs/style-guide.md` in their AGENTS.md:
 
-1. The extension finds all `@` references in AGENTS.md (cwd or ~/.pi/agent/)
+1. The extension reads @refs from all context files Pi has loaded (AGENTS.md, CLAUDE.md, custom context files)
 2. Resolves paths (relative, absolute, ~/ expansion)
 3. If the path is a file: reads it
    If the path is a directory: reads all immediate files (depth 1, sorted alphabetically)
-4. Injects them into the system prompt as `<project_instructions>` blocks inside Pi's `<project_context>` section
+4. Injects them into the system prompt as `<project_references>` blocks inside Pi's `<project_context>` section
 
 ## Conventions
 
 - All code and comments in English
 - AGENTS.md drives the project-level AI context
-- Inject referenced files as `<project_instructions>` blocks inside Pi's `<project_context>` section
+- Inject referenced files as `<project_references>` blocks inside Pi's `<project_context>` section
 
 ## Publishing
 
