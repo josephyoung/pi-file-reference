@@ -83,11 +83,13 @@ interface RefContent {
 }
 
 /**
- * Find and parse AGENTS.md, collect @filepath references.
+ * Find and parse AGENTS.md files, collect @filepath references from all of them.
  *
- * Search order:
- * 1. <cwd>/AGENTS.md
- * 2. ~/.pi/agent/AGENTS.md
+ * Scans both:
+ * 1. <cwd>/AGENTS.md (project scope)
+ * 2. ~/.pi/agent/AGENTS.md (user scope)
+ *
+ * References are deduplicated across all AGENTS.md files.
  */
 function loadRefs(cwd: string): RefContent[] {
   const candidates = [
@@ -95,68 +97,63 @@ function loadRefs(cwd: string): RefContent[] {
     path.join(os.homedir(), ".pi", "agent", AGENTS_FILE),
   ];
 
-  let agentsPath: string | undefined;
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      agentsPath = candidate;
-      break;
-    }
-  }
-
-  if (!agentsPath) return [];
-
-  const raw = fs.readFileSync(agentsPath, "utf-8");
-  const baseDir = path.dirname(agentsPath);
-
-  // Collect all refs from all lines
-  const allRefs: string[] = [];
-  for (const line of raw.split("\n")) {
-    allRefs.push(...parseRefs(line));
-  }
-
-  // Deduplicate while preserving order
   const seen = new Set<string>();
-  const uniqueRefs = allRefs.filter((ref) => {
-    if (seen.has(ref)) return false;
-    seen.add(ref);
-    return true;
-  });
-
-  // Read each referenced file or directory
   const results: RefContent[] = [];
-  for (const ref of uniqueRefs) {
-    // Strip trailing slashes for consistent handling
-    const cleanRef = ref.endsWith("/") ? ref.slice(0, -1) : ref;
-    const resolvedPath = resolveRef(cleanRef, baseDir);
 
-    if (!fs.existsSync(resolvedPath)) {
-      console.warn(`[pi-file-reference] @${cleanRef} -> ${resolvedPath} not found, skipping`);
-      continue;
+  for (const agentsPath of candidates) {
+    if (!fs.existsSync(agentsPath)) continue;
+
+    const raw = fs.readFileSync(agentsPath, "utf-8");
+    const baseDir = path.dirname(agentsPath);
+
+    // Collect all refs from all lines
+    const allRefs: string[] = [];
+    for (const line of raw.split("\n")) {
+      allRefs.push(...parseRefs(line));
     }
 
-    const stat = fs.statSync(resolvedPath);
-    if (stat.isDirectory()) {
-      // Read all files at depth 1, skip subdirectories
-      const entries = fs.readdirSync(resolvedPath, { withFileTypes: true });
-      const files = entries
-        .filter((e) => e.isFile())
-        .map((e) => e.name)
-        .sort(); // deterministic order
+    // Deduplicate while preserving order (across all AGENTS.md files)
+    const uniqueRefs = allRefs.filter((ref) => {
+      if (seen.has(ref)) return false;
+      seen.add(ref);
+      return true;
+    });
 
-      if (files.length === 0) {
-        console.warn(`[pi-file-reference] @${cleanRef} is an empty directory, skipping`);
+    // Read each referenced file or directory (baseDir is per-candidate)
+    for (const ref of uniqueRefs) {
+      // Strip trailing slashes for consistent handling
+      const cleanRef = ref.endsWith("/") ? ref.slice(0, -1) : ref;
+      const resolvedPath = resolveRef(cleanRef, baseDir);
+
+      if (!fs.existsSync(resolvedPath)) {
+        console.warn(`[pi-file-reference] @${cleanRef} -> ${resolvedPath} not found, skipping`);
         continue;
       }
 
-      for (const fileName of files) {
-        const filePath = path.join(resolvedPath, fileName);
-        results.push({
-          ref: `${cleanRef}/${fileName}`,
-          content: fs.readFileSync(filePath, "utf-8"),
-        });
+      const stat = fs.statSync(resolvedPath);
+      if (stat.isDirectory()) {
+        // Read all files at depth 1, skip subdirectories
+        const entries = fs.readdirSync(resolvedPath, { withFileTypes: true });
+        const files = entries
+          .filter((e) => e.isFile())
+          .map((e) => e.name)
+          .sort(); // deterministic order
+
+        if (files.length === 0) {
+          console.warn(`[pi-file-reference] @${cleanRef} is an empty directory, skipping`);
+          continue;
+        }
+
+        for (const fileName of files) {
+          const filePath = path.join(resolvedPath, fileName);
+          results.push({
+            ref: `${cleanRef}/${fileName}`,
+            content: fs.readFileSync(filePath, "utf-8"),
+          });
+        }
+      } else {
+        results.push({ ref: cleanRef, content: fs.readFileSync(resolvedPath, "utf-8") });
       }
-    } else {
-      results.push({ ref: cleanRef, content: fs.readFileSync(resolvedPath, "utf-8") });
     }
   }
 
