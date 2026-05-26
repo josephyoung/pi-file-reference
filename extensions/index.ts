@@ -10,6 +10,7 @@ import * as os from "node:os";
  * - @ must be preceded by whitespace or start-of-line
  * - @ followed by a double-quoted string: extract inside quotes
  * - @ followed by unquoted text: extract until whitespace
+ * - Only .md and .mdc file extensions are accepted
  */
 export function parseRefs(line: string): string[] {
   const refs: string[] = [];
@@ -40,7 +41,17 @@ export function parseRefs(line: string): string[] {
       ref = line.slice(start, i);
     }
 
-    if (ref && (ref.includes("/") || ref.includes("."))) refs.push(ref);
+    if (ref && (ref.includes("/") || ref.includes("."))) {
+      // Only allow .md/.mdc file extensions; pass through paths with no
+      // extension in the last segment (they may be directories).
+      const lastSeg = ref.split("/").pop()!;
+      const dotIdx = lastSeg.lastIndexOf(".");
+      if (dotIdx !== -1) {
+        const ext = lastSeg.slice(dotIdx);
+        if (ext !== ".md" && ext !== ".mdc") continue;
+      }
+      refs.push(ref);
+    }
   }
 
   return refs;
@@ -57,146 +68,167 @@ export function parseRefs(line: string): string[] {
 export function resolveRef(ref: string, baseDir: string): string {
   if (ref.startsWith("/")) return ref;
   if (ref.startsWith("~")) {
-    // ~/path or ~user/path
     const slashIdx = ref.indexOf("/");
     if (slashIdx === -1) {
-      // Just ~ or ~user — unlikely, but handle gracefully
       return path.join(os.homedir(), ref.slice(1));
     }
     const userPart = ref.slice(1, slashIdx);
     if (!userPart) {
-      // ~/path
       return path.join(os.homedir(), ref.slice(slashIdx + 1));
     }
-    // ~user/ — tilde expansion for other users; falls back to homedir + user
     return path.join(os.homedir(), userPart, ref.slice(slashIdx + 1));
   }
   return path.resolve(baseDir, ref);
 }
 
-/** A resolved file reference with its content. */
+/** A resolved file with its content. */
 export interface RefContent {
-  ref: string;
-  resolvedPath: string;
+  path: string;
   content: string;
 }
 
+const MAX_SIZE = 100 * 1024; // 100KB per file
+
 /**
- * Collect @filepath references from context files loaded by Pi
- * (AGENTS.md, CLAUDE.md, and any custom context files).
+ * Collect all resolved file paths from context file @refs.
  *
- * Processes all entries — no hardcoded filename filter.
- * References are deduplicated across all context files.
+ * Parses refs, deduplicates, resolves paths, expands directories,
+ * and filters by extension (.md/.mdc), dot-files, and size (100KB).
  */
-export function loadRefsFromContextFiles(
+export function getAllFilePathFromContextFiles(
   contextFiles: Array<{ path: string; content: string }>,
-): RefContent[] {
+): string[] {
   const seen = new Set<string>();
-  const results: RefContent[] = [];
+  const resolvedPaths: string[] = [];
 
   for (const { path: filePath, content } of contextFiles) {
     const baseDir = path.dirname(filePath);
 
-    // Collect all refs from all lines
     const allRefs: string[] = [];
     for (const line of content.split("\n")) {
       allRefs.push(...parseRefs(line));
     }
 
-    // Deduplicate while preserving order (across all context files)
     const uniqueRefs = allRefs.filter((ref) => {
       if (seen.has(ref)) return false;
       seen.add(ref);
       return true;
     });
 
-    // Read each referenced file or directory (baseDir is per context file)
     for (const ref of uniqueRefs) {
-      // Strip trailing slashes for consistent handling
       const cleanRef = ref.endsWith("/") ? ref.slice(0, -1) : ref;
       const resolvedPath = resolveRef(cleanRef, baseDir);
 
       if (!fs.existsSync(resolvedPath)) {
-        console.warn(`[pi-file-reference] @${cleanRef} -> ${resolvedPath} not found, skipping`);
+        console.warn(
+          `[pi-file-reference] @${cleanRef} -> ${resolvedPath} not found, skipping`,
+        );
         continue;
       }
 
       const stat = fs.statSync(resolvedPath);
+
       if (stat.isDirectory()) {
-        // Read all files at depth 1, skip subdirectories
         const entries = fs.readdirSync(resolvedPath, { withFileTypes: true });
         const files = entries
-          .filter((e) => e.isFile())
+          .filter((e) => {
+            if (!e.isFile()) return false;
+            if (e.name.startsWith(".")) return false;
+            const ext = path.extname(e.name);
+            return ext === ".md" || ext === ".mdc";
+          })
           .map((e) => e.name)
-          .sort(); // deterministic order
-
-        if (files.length === 0) {
-          console.warn(`[pi-file-reference] @${cleanRef} is an empty directory, skipping`);
-          continue;
-        }
+          .sort();
 
         for (const fileName of files) {
           const filePath = path.join(resolvedPath, fileName);
-          results.push({
-            ref: `${cleanRef}/${fileName}`,
-            resolvedPath: filePath,
-            content: fs.readFileSync(filePath, "utf-8"),
-          });
+          const fileStat = fs.statSync(filePath);
+          if (fileStat.size > MAX_SIZE) {
+            console.warn(
+              `[pi-file-reference] ${filePath} exceeds 100KB limit, skipping`,
+            );
+            continue;
+          }
+          resolvedPaths.push(filePath);
         }
       } else {
-        results.push({
-          ref: cleanRef,
-          resolvedPath,
-          content: fs.readFileSync(resolvedPath, "utf-8"),
-        });
+        if (stat.size > MAX_SIZE) {
+          console.warn(
+            `[pi-file-reference] ${resolvedPath} exceeds 100KB limit, skipping`,
+          );
+          continue;
+        }
+        resolvedPaths.push(resolvedPath);
       }
     }
   }
 
-  return results;
+  return resolvedPaths;
 }
 
-let cachedRefs: RefContent[] = [];
+/**
+ * Read file contents for a list of resolved paths.
+ */
+export function parseFileAndContent(paths: string[]): RefContent[] {
+  return paths.map((resolvedPath) => ({
+    path: resolvedPath,
+    content: fs.readFileSync(resolvedPath, "utf-8"),
+  }));
+}
+
+/**
+ * Inject resolved references into the system prompt.
+ *
+ * Inserts <project_references> blocks before </project_context>.
+ * Falls back to appending a new <project_context> block if the tag is absent.
+ */
+export function inject(contents: RefContent[], systemPrompt: string): string {
+  if (!contents.length) return systemPrompt;
+
+  const blocks = contents
+    .map(
+      (r) =>
+        `<project_references path="${r.path}">\n${r.content}\n</project_references>`,
+    )
+    .join("\n\n");
+
+  const closeTag = "</project_context>";
+  const closeIdx = systemPrompt.lastIndexOf(closeTag);
+
+  if (closeIdx !== -1) {
+    const prefix = systemPrompt.slice(0, closeIdx);
+    const suffix = systemPrompt.slice(closeIdx);
+    return prefix + blocks + "\n\n" + suffix;
+  }
+
+  return systemPrompt + `\n\n<project_context>\n\n${blocks}\n\n</project_context>`;
+}
+
+// --- Hook ---
+
+let cachedPaths: string[] = [];
+let cachedContents: RefContent[] = [];
 let initialized = false;
 
 export default function (pi: ExtensionAPI) {
   pi.on("session_start", () => {
-    cachedRefs = [];
+    cachedPaths = [];
+    cachedContents = [];
     initialized = false;
   });
 
   pi.on("before_agent_start", (event) => {
     if (!initialized) {
-      cachedRefs = loadRefsFromContextFiles(
+      cachedPaths = getAllFilePathFromContextFiles(
         event.systemPromptOptions.contextFiles ?? [],
       );
+      cachedContents = parseFileAndContent(cachedPaths);
       initialized = true;
     }
 
-    if (!cachedRefs.length) return;
-
-    const blocks = cachedRefs
-      .map(
-        (r) =>
-          `<project_references path="${r.resolvedPath}">\n${r.content}\n</project_references>`,
-      )
-      .join("\n\n");
-
-    // Inject inside <project_context> after existing <project_instructions>
-    const closeTag = "</project_context>";
-    const closeIdx = event.systemPrompt.lastIndexOf(closeTag);
-
-    if (closeIdx !== -1) {
-      const prefix = event.systemPrompt.slice(0, closeIdx);
-      const suffix = event.systemPrompt.slice(closeIdx);
-      return { systemPrompt: prefix + blocks + "\n\n" + suffix };
+    const newPrompt = inject(cachedContents, event.systemPrompt);
+    if (newPrompt !== event.systemPrompt) {
+      return { systemPrompt: newPrompt };
     }
-
-    // Fallback: no <project_context> (custom prompt)
-    return {
-      systemPrompt:
-        event.systemPrompt +
-        `\n\n<project_context>\n\n${blocks}\n\n</project_context>`,
-    };
   });
 }
