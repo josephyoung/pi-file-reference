@@ -1,0 +1,9 @@
+---
+description: "test3"
+globs: ["src/**/*"]
+alwaysApply: false
+---
+
+this is test3
+
+this is test3
