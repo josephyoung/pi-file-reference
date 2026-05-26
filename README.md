@@ -77,3 +77,5 @@ See [docs/lifecycle-diagram.md](docs/lifecycle-diagram.md) for a visual flow and
 ## License
 
 MIT
+
+See [CHANGELOG.md](CHANGELOG.md) for version history.

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.7
+
+### Added
+- **Extension filter**: `parseRefs` drops non-`.md`/`.mdc` file refs at parse time.
+- **Directory filter**: only `.md`/`.mdc` files at depth 1; dot-files (`.*`) skipped.
+- **Size limit**: files over 100KB are skipped (per-file, not total).
+
+### Changed
+- **Refactored**: `loadRefsFromContextFiles` split into `getAllFilePathFromContextFiles` → `parseFileAndContent` → `inject` pipeline.
+- **RefContent**: simplified from `{ref, resolvedPath, content}` to `{path, content}`.
+
 ## 0.1.6
 
 ### Changed
