@@ -15,8 +15,8 @@ When a user writes `@./docs/style-guide.md` in their AGENTS.md:
 
 1. The extension reads @refs from all context files Pi has loaded (AGENTS.md, CLAUDE.md, custom context files)
 2. Resolves paths (relative, absolute, ~/ expansion)
-3. If the path is a file: reads it
-   If the path is a directory: reads all immediate files (depth 1, sorted alphabetically)
+3. If the path is a file: reads it (only .md/.mdc, files >100KB are skipped)
+   If the path is a directory: reads .md/.mdc files at depth 1 (dot-files skipped, >100KB skipped)
 4. Injects them into the system prompt as `<project_references>` blocks inside Pi's `<project_context>` section
 
 ## Conventions
